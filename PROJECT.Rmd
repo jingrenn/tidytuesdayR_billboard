@@ -1,0 +1,212 @@
+---
+title: "final_submission"
+author: "Group xxxxx"
+date: "2023-04-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE, message = FALSE, warning = FALSE, 
+                      fig.align = "center",  out.width = "80%")
+library(tidytuesdayR)
+library(dplyr)
+library(tidyverse)
+library(RColorBrewer)
+library(ggrepel)
+
+
+billboard <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-14/billboard.csv')
+
+audio <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-09-14/audio_features.csv')
+```
+
+# Introduction
+
+The dataset on Top 100 Billboard songs contains information about the top 100 songs in the US weekly from 1959 to 2020, based on Billboard charts. Some information include the position of the top 100 songs on Billboard charts, as well as various audio features of the songs, such as liveliness, tempo to name a few. This can be used to explore trends and patterns in the music industry over time, which will be covered in the graphs. 
+
+
+# Data transformation
+
+Through data cleaning and transformation, we were able to filter out duplicate entries and arrange the songs based on position and year to have a better understanding of the data. After inspecting xthe data for missing or incomplete entries, we filtered out the years 1958 and 2021 as they only showed data for one quarter of the year.
+
+```{r}
+data = billboard %>% inner_join(audio, by = c('song_id', 'song', 'performer')) %>% 
+  select(-url,-spotify_track_id,-spotify_track_preview_url) %>% 
+  separate(week_id, into= c("month", "day", "year"), convert = TRUE) %>%
+  filter(!year %in% c(2021,1958)) %>%
+  distinct() 
+
+
+```
+
+To provide a clearer picture of how to solve our questions using the data, we grouped the songs based on some of their audio features(as shown in Figure 1) as well as the genres they fall under (as shown in Figure 2) from 1959 to 2020. These can be observed from the first few rows of data in the figures below. 
+
+```{r}
+
+data_audio_features = data %>%  
+  select(year, month, valence, danceability, energy) %>%
+  group_by(year, month) %>%
+  summarize(Valence = mean(valence, na.rm = TRUE),
+            Danceability = mean(danceability, na.rm = TRUE),
+            Energy = mean(energy, na.rm = TRUE)) %>% 
+  gather('Valence':'Energy', key = 'type', value = 'value') %>%
+  mutate(type = as.factor(type)) %>%
+  mutate(month = as.factor(month.abb[month]))
+head(data_audio_features)
+
+```
+As seen from Figure 1, we calculated the average score of valence, energy and dance for the top 100 songs for each year from 1959-2020, which will be used to solve question 1.
+
+```{r}
+data_music_genre_tidy = data %>% select(year,month,day,song_id,performer,song,spotify_genre) %>% 
+  distinct()
+
+data_music_genre_clean = data_music_genre_tidy %>% 
+  mutate(Rock = case_when(str_detect(spotify_genre,"rock") ~ "1"),
+         Pop = case_when(str_detect(spotify_genre,"pop")|
+                           str_detect(spotify_genre, "adult standards") ~ "1"),
+         EDM = case_when(str_detect(spotify_genre, "electronic") |
+                           str_detect(spotify_genre,"edm") |
+                           str_detect(spotify_genre, "techno")|
+                           str_detect(spotify_genre,"electro") |
+                           str_detect(spotify_genre,"house")  ~ 1),
+         "Hip-Hop" = case_when(str_detect(spotify_genre,"rap") |
+                            str_detect(spotify_genre,"freestyle")|
+                            str_detect(spotify_genre,"drill") |
+                            str_detect(spotify_genre,"trap") |
+                            str_detect(spotify_genre,"hip hop") ~ 1),
+         "R&B" = case_when(str_detect(spotify_genre,"rare groove") |
+                             str_detect(spotify_genre,"doo-wop") |
+                             str_detect(spotify_genre,"urban contemporary") |
+                             str_detect(spotify_genre,"new jack swing") |
+                             str_detect(spotify_genre,"funk") |
+                             str_detect(spotify_genre,"soul") |
+                             str_detect(spotify_genre,"r&b") |
+                             str_detect(spotify_genre, "rhythm and blues") ~ 1),
+         Country = case_when(str_detect(spotify_genre, "country") ~ 1),
+         Jazz = case_when(str_detect(spotify_genre,"jazz") ~ 1),
+         Disco = case_when(str_detect(spotify_genre,"disco") ~ 1)) %>%
+  gather(Rock:Disco, key = genre, value = value) %>%
+  na.omit() %>% select(-spotify_genre,-value)
+
+head(data_music_genre_clean) 
+
+
+```
+As seen from Figure 2, we differentiated the top 100 songs based on their genres from 1959-2020, and this will be essential to tackle question 2.
+
+
+# Question 1
+
+## How are different music genres represented in the top 100 Billboard songs over the years?
+
+Musical styles and genres are influenced by cultures, as societies evolve, fusion of various musical styles brings about new musical genres(Crowns, 2021). On top of that, as musicians are constantly innovating and pushing the boundaries of music, they can develop new genres through blending of existing ones. With that in mind, we hope to identify the trends in 9 music genres over the years from 1959-2020. We selected the top 100 songs for each year and their corresponding genre, while filtering out songs that are not part of any genre. 
+
+We plot the changes in the music genres over the course of 61 years from 1959-2020 using a stacked bar chart and a line graph.
+
+
+```{r}
+data_music_genre_clean %>% 
+  group_by(year) %>% 
+  ggplot(aes(x = year)) +
+  geom_bar(aes(fill = genre), position = "fill") +
+  scale_x_continuous(breaks = seq(1959, 2020, by = 5)) +
+  scale_fill_brewer(type = "qual",palette = "Paired") +
+  labs(x = "Year", y = "Percentage", fill = "Music Genre", title  = "Changes in music genre trend from 1959 to 2020") + 
+  theme_minimal()
+```
+
+The 100% stacked bar chart places the percentage of each music genre over the previous one, where the percentage value is on the y-axis, and year on the x-axis. All bars have the same height and each genre within a bar is represented by a different colour as shown in the legend. By stacking the bars with different colours for each genre, readers can see how each genre changes over time and how it contributes to the overall change.
+
+
+```{r}
+data_music_genre_clean %>%
+  group_by(year) %>%
+  count(genre) %>% 
+  ggplot() +
+  geom_line(aes(x= year, y = n, color = genre), linewidth = 1.4) +
+  facet_wrap(~ genre, scales = "free") +
+  scale_x_continuous(breaks = seq(1960, 2020, by = 20)) +
+  scale_color_brewer(type = "qual",palette = "Paired") +
+  labs(x = "Year", y = "Number of songs", color = "Music Genre", title  = "Changes in number of songs for each genre that entered the Billboard Top 100 charts from 1959 to 2020") +
+  theme(legend.position="none")
+```
+
+The graph shows the changes in the number of songs that entered the Billboard Top 100 charts for each music genre from 1959 to 2020. The graph is divided into different facets, with each facet representing a particular music genre such as Rock-and-Roll, Pop, Hip-Hop, etc. The y-axis of the graph shows the number of songs for each music genre, while the x-axis shows the year. The graph highlights the increase and decrease of popularity for each genre, showcasing the evolution of music from 1959 to 2020.
+
+
+
+## Discussions
+
+As seen from the graph above, rock and roll was the dominant music genre in the early years. Then it was followed by rock music for large parts of the 20th century, before other genres such as Hip-Hop, electronic dance music(EDM) and pop music started to gain traction from 1994. Pop music tends to be catchy and appeals to a broad audience since it typically features simple, repetitive melodies and lyrics that are easy to sing along with. Pop songs often touch on themes and topics that are relevant to people's lives, such as love and personal empowerment. EDM, on the other hand, has become increasingly popular recently due to its ability to create a unique and energetic atmosphere that is perfect for dancing and socialising due to its high beats per minute rhythms (which will be further explained in question 2). EDM also rides on the wave of technological advancements to create new and exciting sounds that are different from all other genres. The decline in popularity of rock music may be due to a combination of changing musical tastes and fragmentation of the music industry. The rise of other genres have taken the attention away from rock music, and rock music may face more competition to appeal to the new generation of listeners that have a different musical taste. 
+
+In conclusion, musical taste and trends change over time, and what was popular in the past may not be as popular now. This is an inevitable cycle as listeners and producers constantly innovate and push the boundaries of music. 
+
+
+# Question 2
+
+## How are the valence, energy and danceability of the top 100 Billboard songs changing over the years?
+
+Development of new musical instruments coupled with improvements in recording and production techniques have enabled musicians to create and distribute music in innovative ways, leading to the emergence of new musical styles. Therefore, we seek to observe the pattern of 3 audio features of the top 100 Billboard songs from 1959-2020. To tackle this question, we utilised 3 aspects of the audio features dataset that measures from 0.0 to 1.0 - valence, energy, danceability, as well as the week_id, week_position,song, song_id and performer data from the billboard dataset. Valence describes the musical positiveness conveyed by a song, with 1 being positive, and 0 being negative. Energy represents a perceptual measure of intensity and activity, with 1 being louder and noisier, and 0 being gentler and slower. Danceability describes how suitable a song is for dancing, with 1 being very suitable, and 0 being very unsuitable.
+
+We plot the changes in 3 factors(average valence, average danceability and average energy) over the course of 61 years from 1959-2020 using a line graph and a heatmap.
+
+
+```{r fig.height = 5, fig.width = 20}
+data_audio_features %>% group_by(year,type) %>%
+  summarize(value = mean(value)) %>%
+  ggplot() +
+  geom_line(aes(x = year, y = value, color = type), size = 2) +
+  scale_x_continuous(breaks = seq(1959, 2021, by = 10)) +
+  labs(x = "Year", y = "Index Score (0.0 - 1.0)",
+       title = "Change in Average Index Scores from 1959 to 2020, by year",
+       color = "Type of Index") +
+  facet_wrap(~type) +
+  theme_classic() +
+  theme(panel.spacing = unit(2, "lines"),
+        text = element_text(size = 15),
+        plot.title = element_text(size = 20))
+```
+
+The line graph consists of a series of data points connected by a line, with the score values plotted along the x-axis and year plotted along the y-axis. Plotting a line graph is a good way to show changes in those factors over time because it provides a clear and easy-to-understand visual representation of trends and patterns in the data. The line graph is able to highlight any changes to the factors which can be immediately captured by the audience. 
+
+
+```{r fig.height = 12, fig.width = 7}
+data_audio_features %>%
+  ggplot() +
+  geom_tile(aes(x = year, y = fct_inorder(month), fill = value)) +
+  labs(x = "Month", y = "Year",
+       title = "Change in Average Index Scores from 1959 to 2020, by year and month",
+       fill = "Index Score") +
+  facet_wrap(~ type, nrow = 3) +
+  scale_x_continuous(breaks = seq(1959, 2021, by = 5)) +
+  scale_y_discrete(limits = rev) + 
+  scale_fill_gradient(low = "grey", high = "blue") +
+  theme_minimal() +
+  theme(panel.border = element_blank())
+```
+
+The graph shows the changes in the number of songs that entered the Billboard Top 100 charts for each music 
+
+**EXPLANATION FOR THE SECOND GRAPH**
+
+
+## Discussions
+
+As seen from the graphs above, readers will be able to easily identify the changes in valence, energy and danceability over the years. It is apparent that valence levels have decreased whereas energy and danceability values have increased from 1959-2020. 
+
+The trends of these 3 audio features observed can be noticed in our world today, with the rise of more upbeat songs like electronic dance music(as mentioned in part 1), these songs fast paced and loud, which increase the value of energy and danceability(Martina, 2022). On the other hand, research shows that there has also been a rise of “sad” lyrics and songs with negative emotions in recent years, which explains the decrease in valence value. Possible reasons include the prevalence of social media and digital communication which has led to increased feelings of loneliness and isolation, which may be reflected in the emotional content of music. Musicians may also tap on this trend to produce songs with an emphasis on negative emotions that may be relatable to their listeners(Kolchinsky et al., 2017).
+
+
+
+# References
+
+Crowns, M. (2021, May 12). How music changes over time and why new genres are emerging: Tips. Music Crowns. Retrieved April 12, 2023, from https://www.musiccrowns.org/tips/how-music-changes-over-time-and-why-new-genres-are-emerging/#:~:text=Why%20Do%20New%20Music%20Genres,a%20significant%20impact%20on%20music. 
+
+Kolchinsky, A., Dhande, N., Park, K., & Ahn, Y.-Y. (2017). The minor fall, the major lift: Inferring emotional valence of musical chords through lyrics. Royal Society Open Science, 4(11), 170952. https://doi.org/10.1098/rsos.170952 
+Martina. (2022, July 12). What is EDM (electronic dance music)? iMusician. Retrieved April 12, 2023, from https://imusician.pro/en/resources/blog/electronic-dance-music#:~:text=Characteristics%20of%20electronic%20dance%20music&text=While%20there%20are%2C%20traditionally%2C%20rarely,beats%20per%20minute%20(BP).
+
+Person. (2022, February 24). Is pop music really getting sadder and angrier? BBC Culture. Retrieved April 12, 2023, from https://www.bbc.com/culture/article/20190513-is-pop-music-really-getting-sadder-and-angrier 
+
+
+
